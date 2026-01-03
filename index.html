@@ -90,6 +90,10 @@
       font-size: 12px;
       padding: 2px 5px;
     }
+
+    .danger {
+      color: red;
+    }
   </style>
 </head>
 <body>
@@ -101,9 +105,8 @@
   <button id="historyTab" onclick="showHistory()">History</button>
 </div>
 
-<!-- SCORECARD VIEW -->
+<!-- SCORECARD -->
 <div id="scorecardView">
-
   <div id="controls">
     <input id="playerName" placeholder="Player name" />
     <button onclick="addPlayer()">Add Player</button>
@@ -113,10 +116,9 @@
 
   <div class="table-wrapper" id="tableContainer"></div>
   <div id="ranking"></div>
-
 </div>
 
-<!-- HISTORY VIEW -->
+<!-- HISTORY -->
 <div id="historyView" style="display:none"></div>
 
 <script>
@@ -220,7 +222,7 @@
       .sort((a, b) => a.total - b.total);
 
     return `
-      <h2>Player Rankings</h2>
+      <h2>Current Rankings</h2>
       <table>
         <tr><th>Position</th><th>Player</th><th>Total</th></tr>
         ${ranking.map((p, i) =>
@@ -230,6 +232,58 @@
     `;
   }
 
+  function renderAllTimeLeaderboard() {
+    const stats = {};
+
+    data.history.forEach(g => {
+      g.totals.forEach(t => {
+        if (!stats[t.name]) {
+          stats[t.name] = { name: t.name, games: 0, wins: 0, totalScore: 0 };
+        }
+        stats[t.name].games++;
+        stats[t.name].totalScore += t.total;
+        if (g.winners.includes(t.name)) stats[t.name].wins++;
+      });
+    });
+
+    const leaderboard = Object.values(stats).map(p => ({
+      ...p,
+      avg: (p.totalScore / p.games).toFixed(1)
+    }))
+    .sort((a, b) => b.wins - a.wins || a.avg - b.avg);
+
+    if (!leaderboard.length) return "";
+
+    return `
+      <h2>All-Time Leaderboard</h2>
+      <table>
+        <tr>
+          <th>Rank</th>
+          <th>Player</th>
+          <th>Wins</th>
+          <th>Games</th>
+          <th>Avg Score</th>
+        </tr>
+        ${leaderboard.map((p, i) =>
+          `<tr>
+            <td>${i + 1}</td>
+            <td>${p.name}</td>
+            <td>${p.wins}</td>
+            <td>${p.games}</td>
+            <td>${p.avg}</td>
+          </tr>`
+        ).join("")}
+      </table>
+    `;
+  }
+
+  function deleteGame(index) {
+    if (!confirm("Delete this game from history?")) return;
+    data.history.splice(index, 1);
+    save();
+    renderHistory();
+  }
+
   function renderHistory() {
     if (!data.history.length) {
       historyView.innerHTML = "<h2>No games played yet</h2>";
@@ -237,14 +291,21 @@
     }
 
     historyView.innerHTML = `
+      ${renderAllTimeLeaderboard()}
       <h2>Game History</h2>
       <table>
-        <tr><th>Date</th><th>Winner(s)</th><th>Scores</th></tr>
-        ${data.history.map(g =>
+        <tr>
+          <th>Date</th>
+          <th>Winner(s)</th>
+          <th>Scores</th>
+          <th></th>
+        </tr>
+        ${data.history.map((g, i) =>
           `<tr>
             <td>${g.date}</td>
             <td>${g.winners.join(", ")}</td>
             <td>${g.totals.map(t => `${t.name}: ${t.total}`).join(" | ")}</td>
+            <td><button class="danger" onclick="deleteGame(${i})">🗑</button></td>
           </tr>`
         ).join("")}
       </table>
@@ -260,7 +321,6 @@
     }
 
     const leaders = getLeaders();
-
     let html = "<table><tr><th>Round</th>";
 
     data.players.forEach((p, i) => {
