@@ -216,12 +216,9 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
   import {
     getFirestore, collection, addDoc, getDocs, updateDoc, doc,
-    query, orderBy, where, serverTimestamp
+    query, orderBy, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-  // IMPORTANT:
-  // Your Firestore rules have the passcode string hard-coded.
-  // You’ll enter the same passcode in the app when prompted.
   const firebaseConfig = {
     apiKey: "AIzaSyANco7Z5TrnOEeXrReubwTxFlIsw1Sr0Ck",
     authDomain: "play-nine-scorecard-f56ad.firebaseapp.com",
@@ -425,13 +422,15 @@
 
   // Firestore (shared history)
   async function loadHistoryFromCloud(){
-    const q = query(
-      collection(db, "games"),
-      where("deleted", "==", false),
-      orderBy("createdAt", "desc")
-    );
+    // IMPORTANT CHANGE:
+    // Load ALL games ordered by createdAt, then filter deleted client-side.
+    // This makes older documents (missing `deleted`) still show up.
+    const q = query(collection(db, "games"), orderBy("createdAt", "desc"));
     const snap = await getDocs(q);
-    history = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    history = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(g => g.deleted !== true); // treat missing as not deleted
   }
 
   async function endGame(){
@@ -442,23 +441,27 @@
 
     if (!confirm("End game and save results to shared history?")) return;
 
-    const totals = local.players.map((name, i) => ({ name, total: getTotal(i) }));
-    const min = Math.min(...totals.map(t => t.total));
-    const winners = totals.filter(t => t.total === min).map(t => t.name);
+    try {
+      const totals = local.players.map((name, i) => ({ name, total: getTotal(i) }));
+      const min = Math.min(...totals.map(t => t.total));
+      const winners = totals.filter(t => t.total === min).map(t => t.name);
 
-    await addDoc(collection(db, "games"), {
-      createdAt: serverTimestamp(),
-      dateLabel: new Date().toLocaleString(),
-      winners,
-      totals,
-      deleted: false,
-      passcode
-    });
+      await addDoc(collection(db, "games"), {
+        createdAt: serverTimestamp(),
+        dateLabel: new Date().toLocaleString(),
+        winners,
+        totals,
+        deleted: false,
+        passcode
+      });
 
-    // Next game locally
-    local.scores = local.players.map(() => Array(ROUNDS).fill(null));
-    saveLocal();
-    renderScorecard();
+      local.scores = local.players.map(() => Array(ROUNDS).fill(null));
+      saveLocal();
+      renderScorecard();
+    } catch (err) {
+      alert("❌ Wrong passcode. Game was NOT saved.");
+      localStorage.removeItem("playNinePasscode");
+    }
   }
 
   async function deleteGame(index){
@@ -470,14 +473,19 @@
 
     if (!confirm("Delete this game from shared history?")) return;
 
-    // Soft delete (works with rules)
-    await updateDoc(doc(db, "games", g.id), {
-      deleted: true,
-      passcode
-    });
+    try {
+      // Soft delete (works with rules)
+      await updateDoc(doc(db, "games", g.id), {
+        deleted: true,
+        passcode
+      });
 
-    await loadHistoryFromCloud();
-    renderHistory();
+      await loadHistoryFromCloud();
+      renderHistory();
+    } catch (err) {
+      alert("❌ Wrong passcode. Game was NOT deleted.");
+      localStorage.removeItem("playNinePasscode");
+    }
   }
   window._deleteGame = deleteGame;
 
